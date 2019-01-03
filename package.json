@@ -18,7 +18,8 @@
     "testonly": "npm test",
     "test:ci": "npm run coverage -- --ci --maxWorkers=2  --reporters=default --reporters=jest-junit",
     "coverage": "npm test -- --coverage",
-    "coverage:upload": "codecov"
+    "coverage:upload": "codecov",
+    "deploy-alpha": "npm run clean && npm ci && lerna publish --exact --dist-tag alpha"
   },
   "lint-staged": {
     "*.ts": [
