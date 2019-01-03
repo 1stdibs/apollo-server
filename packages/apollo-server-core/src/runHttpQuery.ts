@@ -6,7 +6,12 @@ import { CacheControlExtensionOptions } from 'apollo-cache-control';
 import { omit } from 'lodash';
 
 import { Request } from 'apollo-server-env';
-import { runQuery, QueryOptions } from './runQuery';
+import {
+  runQuery,
+  QueryOptions,
+  isDeferredGraphQLResponse,
+  DeferredGraphQLResponse,
+} from './runQuery';
 import {
   default as GraphQLOptions,
   resolveGraphqlOptions,
@@ -17,6 +22,9 @@ import {
   PersistedQueryNotFoundError,
 } from 'apollo-server-errors';
 import { calculateCacheControlHeaders } from './caching';
+import { DeferredExecutionResult } from './execute';
+import { fromGraphQLError } from 'apollo-server-errors';
+import { $$asyncIterator, createAsyncIterator } from 'iterall';
 
 export interface HttpQueryRequest {
   method: string;
@@ -30,6 +38,7 @@ export interface HttpQueryRequest {
     | GraphQLOptions
     | ((...args: Array<any>) => Promise<GraphQLOptions> | GraphQLOptions);
   request: Pick<Request, 'url' | 'method' | 'headers'>;
+  enableDefer?: boolean;
 }
 
 // The result of a curl does not appear well in the terminal, so we add an extra new line
@@ -45,7 +54,8 @@ export interface ApolloServerHttpResponse {
 }
 
 export interface HttpQueryResponse {
-  graphqlResponse: string;
+  graphqlResponse?: string;
+  graphqlResponses?: AsyncIterable<string>;
   responseInit: ApolloServerHttpResponse;
 }
 
@@ -404,6 +414,7 @@ export async function runHttpQuery(
         extensions: optionsObject.extensions,
         persistedQueryHit,
         persistedQueryRegister,
+        enableDefer: request.enableDefer,
       };
 
       return runQuery(params);
@@ -421,7 +432,13 @@ export async function runHttpQuery(
         errors: formatApolloErrors([e], optionsObject),
       };
     }
-  }) as Array<Promise<ExecutionResult & { extensions?: Record<string, any> }>>;
+  }) as Array<
+    Promise<
+      (ExecutionResult | DeferredExecutionResult) & {
+        extensions?: Record<string, any>;
+      }
+    >
+  >;
 
   let responses;
   try {
@@ -463,34 +480,86 @@ export async function runHttpQuery(
 
   if (!isBatch) {
     const graphqlResponse = responses[0];
+
+    const isDeferred = isDeferredGraphQLResponse(graphqlResponse);
+
+    let initialResponse: ExecutionResult; // We need this check for and throw errors
+
+    if (isDeferred) {
+      initialResponse = (graphqlResponse as DeferredGraphQLResponse)
+        .initialResponse;
+    } else {
+      initialResponse = graphqlResponse;
+    }
+
     // This code is run on parse/validation errors and any other error that
     // doesn't reach GraphQL execution
-    if (graphqlResponse.errors && typeof graphqlResponse.data === 'undefined') {
+    if (initialResponse.errors && typeof initialResponse.data === 'undefined') {
       // don't include optionsObject, since the errors have already been formatted
-      return throwHttpGraphQLError(400, graphqlResponse.errors as any);
+      return throwHttpGraphQLError(400, initialResponse.errors as any);
     }
-    const stringified = prettyJSONStringify(graphqlResponse);
 
-    responseInit.headers!['Content-Length'] = Buffer.byteLength(
-      stringified,
-      'utf8',
-    ).toString();
+    if (!isDeferred) {
+      // Add content-length header
+      responseInit.headers!['Content-Length'] = Buffer.byteLength(
+        prettyJSONStringify(graphqlResponse),
+        'utf8',
+      ).toString();
+    }
 
     return {
-      graphqlResponse: stringified,
+      graphqlResponse: isDeferred
+        ? undefined
+        : prettyJSONStringify(graphqlResponse),
+      graphqlResponses: isDeferred
+        ? graphqlResponseToAsyncIterable(
+            graphqlResponse as DeferredGraphQLResponse,
+          )
+        : undefined,
       responseInit,
     };
   }
 
-  const stringified = prettyJSONStringify(responses);
-
-  responseInit.headers!['Content-Length'] = Buffer.byteLength(
-    stringified,
-    'utf8',
-  ).toString();
-
+  // TODO: Handle defer in batched queries.
+  // This is a little awkward now since we need a separate HTTP connection
+  // to stream patches per query.
   return {
-    graphqlResponse: stringified,
+    graphqlResponse: prettyJSONStringify(responses),
     responseInit,
   };
+}
+
+/**
+ * Note: We can use async generators directly when it is supported in node 8/6
+ */
+function graphqlResponseToAsyncIterable(
+  result: DeferredGraphQLResponse,
+): AsyncIterable<string> {
+  const initialResponse = prettyJSONStringify(result.initialResponse);
+  let initialResponseSent = false;
+  const patchIterator = createAsyncIterator(result.deferredPatches);
+
+  return {
+    [$$asyncIterator]() {
+      return {
+        next() {
+          if (!initialResponseSent) {
+            initialResponseSent = true;
+            return Promise.resolve({ value: initialResponse, done: false });
+          } else {
+            return patchIterator.next().then(({ value, done }) => {
+              if (value && value.errors) {
+                value.errors = value.errors.map(error =>
+                  fromGraphQLError(error),
+                );
+              }
+              // Call requestDidEnd when the last patch is resolved
+              if (done) result.requestDidEnd();
+              return { value: prettyJSONStringify(value), done };
+            });
+          }
+        },
+      };
+    },
+  } as any; // Typescript does not handle $$asyncIterator correctly
 }

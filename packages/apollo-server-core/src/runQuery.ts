@@ -5,13 +5,18 @@ import {
   DocumentNode,
   parse,
   validate,
-  execute,
-  ExecutionArgs,
   getOperationAST,
   GraphQLError,
   specifiedRules,
   ValidationContext,
 } from 'graphql';
+
+import {
+  execute,
+  ExecutionArgs,
+  isDeferredExecutionResult,
+  ExecutionPatchResult,
+} from './execute';
 
 import { Request } from 'apollo-server-env';
 
@@ -32,11 +37,27 @@ import {
   ValidationError,
   SyntaxError,
 } from 'apollo-server-errors';
+import { CannotDeferNonNullableFields } from './validationRules/CannotDeferNonNullableFields';
 
 export interface GraphQLResponse {
   data?: object;
   errors?: Array<GraphQLError & object>;
   extensions?: object;
+}
+
+export interface DeferredGraphQLResponse {
+  initialResponse: GraphQLResponse;
+  deferredPatches: AsyncIterable<ExecutionPatchResult>;
+  requestDidEnd: () => void;
+}
+
+export function isDeferredGraphQLResponse(
+  result: any,
+): result is DeferredGraphQLResponse {
+  return (
+    (<DeferredGraphQLResponse>result).initialResponse !== undefined &&
+    (<DeferredGraphQLResponse>result).deferredPatches !== undefined
+  );
 }
 
 export interface QueryOptions {
@@ -68,6 +89,7 @@ export interface QueryOptions {
   extensions?: Array<() => GraphQLExtension>;
   persistedQueryHit?: boolean;
   persistedQueryRegister?: boolean;
+  enableDefer?: boolean;
 }
 
 function isQueryOperation(query: DocumentNode, operationName?: string) {
@@ -75,12 +97,16 @@ function isQueryOperation(query: DocumentNode, operationName?: string) {
   return operationAST && operationAST.operation === 'query';
 }
 
-export function runQuery(options: QueryOptions): Promise<GraphQLResponse> {
+export function runQuery(
+  options: QueryOptions,
+): Promise<GraphQLResponse | DeferredGraphQLResponse> {
   // Fiber-aware Promises run their .then callbacks in Fibers.
   return Promise.resolve().then(() => doRunQuery(options));
 }
 
-function doRunQuery(options: QueryOptions): Promise<GraphQLResponse> {
+function doRunQuery(
+  options: QueryOptions,
+): Promise<GraphQLResponse | DeferredGraphQLResponse> {
   if (options.queryString && options.parsedQuery) {
     throw new Error('Only supply one of queryString and parsedQuery');
   }
@@ -138,7 +164,7 @@ function doRunQuery(options: QueryOptions): Promise<GraphQLResponse> {
   });
   return Promise.resolve()
     .then(
-      (): Promise<GraphQLResponse> => {
+      (): Promise<GraphQLResponse | DeferredGraphQLResponse> => {
         // Parse the document.
         let documentAST: DocumentNode;
         if (options.parsedQuery) {
@@ -163,7 +189,9 @@ function doRunQuery(options: QueryOptions): Promise<GraphQLResponse> {
                 debug,
               },
             );
-            return Promise.resolve({ errors: graphqlParseErrors });
+            return Promise.resolve({
+              errors: graphqlParseErrors,
+            } as GraphQLResponse);
           } finally {
             parsingDidEnd(...(graphqlParseErrors || []));
           }
@@ -178,7 +206,7 @@ function doRunQuery(options: QueryOptions): Promise<GraphQLResponse> {
           throw options.nonQueryError;
         }
 
-        let rules = specifiedRules;
+        let rules = specifiedRules.concat([CannotDeferNonNullableFields]);
         if (options.validationRules) {
           rules = rules.concat(options.validationRules);
         }
@@ -211,7 +239,7 @@ function doRunQuery(options: QueryOptions): Promise<GraphQLResponse> {
             if (validationErrors && validationErrors.length) {
               return Promise.resolve({
                 errors: validationErrors,
-              });
+              } as GraphQLResponse);
             }
           }
         }
@@ -224,6 +252,7 @@ function doRunQuery(options: QueryOptions): Promise<GraphQLResponse> {
           variableValues: options.variables,
           operationName: options.operationName,
           fieldResolver: options.fieldResolver,
+          enableDefer: options.enableDefer || false,
         };
         const executionDidEnd = extensionStack.executionDidStart({
           executionArgs,
@@ -245,17 +274,29 @@ function doRunQuery(options: QueryOptions): Promise<GraphQLResponse> {
             } as ExecutionResult;
           })
           .then(result => {
+            let executionResult: ExecutionResult;
+            let patches: AsyncIterable<ExecutionPatchResult> | undefined;
+
+            if (isDeferredExecutionResult(result)) {
+              executionResult = result.initialResult;
+              patches = result.deferredPatches;
+            } else {
+              executionResult = result;
+            }
             let response: GraphQLResponse = {
-              data: result.data,
+              data: executionResult.data,
             };
 
-            if (result.errors) {
-              response.errors = formatApolloErrors([...result.errors], {
-                debug,
-              });
+            if (executionResult.errors) {
+              response.errors = formatApolloErrors(
+                [...executionResult.errors],
+                {
+                  debug,
+                },
+              );
             }
 
-            executionDidEnd(...(result.errors || []));
+            executionDidEnd(...(executionResult.errors || []));
 
             const formattedExtensions = extensionStack.format();
             if (Object.keys(formattedExtensions).length > 0) {
@@ -266,7 +307,15 @@ function doRunQuery(options: QueryOptions): Promise<GraphQLResponse> {
               response = options.formatResponse(response, options);
             }
 
-            return response;
+            if (isDeferredExecutionResult(result)) {
+              return {
+                initialResponse: response,
+                deferredPatches: patches!,
+                requestDidEnd,
+              };
+            } else {
+              return response;
+            }
           });
       },
     )
@@ -277,9 +326,24 @@ function doRunQuery(options: QueryOptions): Promise<GraphQLResponse> {
       requestDidEnd(err);
       throw err;
     })
-    .then((graphqlResponse: GraphQLResponse) => {
-      const response = extensionStack.willSendResponse({ graphqlResponse });
-      requestDidEnd();
-      return response.graphqlResponse;
+    .then((graphqlResponse: GraphQLResponse | DeferredGraphQLResponse) => {
+      // For deferred queries, pass the requestDidEnd callback as part of the
+      // AsyncIterable so that it only gets called after all
+      // the patches have been resolved.
+      if (isDeferredGraphQLResponse(graphqlResponse)) {
+        const response = extensionStack.willSendResponse({
+          graphqlResponse: graphqlResponse.initialResponse,
+        });
+        return {
+          ...graphqlResponse,
+          initialResponse: response.graphqlResponse,
+        };
+      } else {
+        const response = extensionStack.willSendResponse({
+          graphqlResponse: graphqlResponse as GraphQLResponse,
+        });
+        requestDidEnd();
+        return response.graphqlResponse;
+      }
     });
 }

@@ -8,9 +8,9 @@
     "declarationMap": true,
     "noImplicitAny": false,
     "removeComments": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "lib": ["es2017", "esnext.asynciterable"],
-    "types": ["node", "mocha"]
+    "types": ["node", "jest"]
   }
 }

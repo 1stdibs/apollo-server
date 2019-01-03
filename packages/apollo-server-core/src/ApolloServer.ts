@@ -9,6 +9,7 @@ import {
   GraphQLFieldResolver,
   ValidationContext,
   FieldDefinitionNode,
+  GraphQLSchemaConfig,
 } from 'graphql';
 import { GraphQLExtension } from 'graphql-extensions';
 import { EngineReportingAgent } from 'apollo-engine-reporting';
@@ -43,6 +44,7 @@ import {
   createPlaygroundOptions,
   PlaygroundRenderPageOptions,
 } from './playground';
+import GraphQLDeferDirective from './GraphQLDeferDirective';
 
 const NoIntrospection = (context: ValidationContext) => ({
   Field(node: FieldDefinitionNode) {
@@ -156,23 +158,37 @@ export class ApolloServerBase {
     }
 
     if (schema) {
-      this.schema = schema;
+      // @defer directive should be added by default
+      const newDirectives = schema.getDirectives().slice();
+      newDirectives.push(GraphQLDeferDirective);
+      const newSchemaConfig: GraphQLSchemaConfig = {
+        query: schema.getQueryType(),
+        mutation: schema.getMutationType(),
+        subscription: schema.getSubscriptionType(),
+        types: Object.values(schema.getTypeMap()),
+        directives: newDirectives,
+        astNode: schema.astNode,
+      };
+      this.schema = new GraphQLSchema(newSchemaConfig);
     } else {
       if (!typeDefs) {
         throw Error(
           'Apollo Server requires either an existing schema or typeDefs',
         );
       }
+
+      const deferDirectiveDef = gql`
+        directive @defer(if: Boolean = true) on FIELD
+      `;
+      const uploadScalarDef = gql`
+        scalar Upload
+      `;
       this.schema = makeExecutableSchema({
-        // we add in the upload scalar, so that schemas that don't include it
-        // won't error when we makeExecutableSchema
+        // Add in the upload scalar, and @defer directive so that schemas
+        // that don't include it won't error when we makeExecutableSchema
         typeDefs: this.uploadsConfig
-          ? [
-              gql`
-                scalar Upload
-              `,
-            ].concat(typeDefs)
-          : typeDefs,
+          ? [uploadScalarDef, deferDirectiveDef].concat(typeDefs)
+          : [deferDirectiveDef].concat(typeDefs),
         schemaDirectives,
         resolvers,
       });

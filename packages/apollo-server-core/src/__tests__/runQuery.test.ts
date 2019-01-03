@@ -1,8 +1,5 @@
 /* tslint:disable:no-unused-expression */
-import { expect } from 'chai';
-import { stub } from 'sinon';
 import MockReq = require('mock-req');
-import 'mocha';
 
 import {
   GraphQLSchema,
@@ -13,14 +10,16 @@ import {
   parse,
 } from 'graphql';
 
-import { runQuery } from './runQuery';
+import {
+  DeferredGraphQLResponse,
+  GraphQLResponse,
+  runQuery,
+} from '../runQuery';
+import { isDeferredGraphQLResponse } from '../runQuery';
 
-// Make the global Promise constructor Fiber-aware to simulate a Meteor
-// environment.
-import { makeCompatible } from 'meteor-promise';
-import Fiber = require('fibers');
 import { GraphQLExtensionStack, GraphQLExtension } from 'graphql-extensions';
-makeCompatible(Promise, Fiber);
+import GraphQLDeferDirective from '../GraphQLDeferDirective';
+import { forAwaitEach } from 'iterall';
 
 const queryType = new GraphQLObjectType({
   name: 'QueryType',
@@ -69,11 +68,8 @@ const queryType = new GraphQLObjectType({
     },
     testAwaitedValue: {
       type: GraphQLString,
-      resolve() {
-        // Calling Promise.await is legal here even though this is
-        // not an async function, because we are guaranteed to be
-        // running in a Fiber.
-        return 'it ' + (<any>Promise).await('works');
+      async resolve() {
+        return 'it ' + (await 'works');
       },
     },
     testError: {
@@ -98,7 +94,8 @@ describe('runQuery', () => {
       queryString: query,
       request: new MockReq(),
     }).then(res => {
-      expect(res.data).to.deep.equal(expected);
+      expect(isDeferredGraphQLResponse(res)).toEqual(false);
+      expect((res as GraphQLResponse).data).toEqual(expected);
     });
   });
 
@@ -110,7 +107,8 @@ describe('runQuery', () => {
       parsedQuery: query,
       request: new MockReq(),
     }).then(res => {
-      expect(res.data).to.deep.equal(expected);
+      expect(isDeferredGraphQLResponse(res)).toEqual(false);
+      expect((res as GraphQLResponse).data).toEqual(expected);
     });
   });
 
@@ -123,37 +121,38 @@ describe('runQuery', () => {
       variables: { base: 1 },
       request: new MockReq(),
     }).then(res => {
-      expect(res.data).to.be.undefined;
-      expect(res.errors!.length).to.equal(1);
-      expect(res.errors![0].message).to.match(expected);
+      expect(isDeferredGraphQLResponse(res)).toEqual(false);
+      expect((res as GraphQLResponse).data).toBeUndefined();
+      expect((res as GraphQLResponse).errors!.length).toEqual(1);
+      expect((res as GraphQLResponse).errors![0].message).toMatch(expected);
     });
   });
 
   it('does not call console.error if in an error occurs and debug mode is set', () => {
     const query = `query { testError }`;
-    const logStub = stub(console, 'error');
+    const logStub = jest.spyOn(console, 'error');
     return runQuery({
       schema,
       queryString: query,
       debug: true,
       request: new MockReq(),
     }).then(() => {
-      logStub.restore();
-      expect(logStub.callCount).to.equal(0);
+      logStub.mockRestore();
+      expect(logStub.mock.calls.length).toEqual(0);
     });
   });
 
   it('does not call console.error if in an error occurs and not in debug mode', () => {
     const query = `query { testError }`;
-    const logStub = stub(console, 'error');
+    const logStub = jest.spyOn(console, 'error');
     return runQuery({
       schema,
       queryString: query,
       debug: false,
       request: new MockReq(),
     }).then(() => {
-      logStub.restore();
-      expect(logStub.callCount).to.equal(0);
+      logStub.mockRestore();
+      expect(logStub.mock.calls.length).toEqual(0);
     });
   });
 
@@ -167,9 +166,10 @@ describe('runQuery', () => {
       variables: { base: 1 },
       request: new MockReq(),
     }).then(res => {
-      expect(res.data).to.be.undefined;
-      expect(res.errors!.length).to.equal(1);
-      expect(res.errors![0].message).to.deep.equal(expected);
+      expect(isDeferredGraphQLResponse(res)).toEqual(false);
+      expect((res as GraphQLResponse).data).toBeUndefined();
+      expect((res as GraphQLResponse).errors!.length).toEqual(1);
+      expect((res as GraphQLResponse).errors![0].message).toEqual(expected);
     });
   });
 
@@ -182,7 +182,8 @@ describe('runQuery', () => {
       rootValue: 'it also',
       request: new MockReq(),
     }).then(res => {
-      expect(res.data).to.deep.equal(expected);
+      expect(isDeferredGraphQLResponse(res)).toEqual(false);
+      expect((res as GraphQLResponse).data).toEqual(expected);
     });
   });
 
@@ -195,7 +196,8 @@ describe('runQuery', () => {
       context: { s: 'it still' },
       request: new MockReq(),
     }).then(res => {
-      expect(res.data).to.deep.equal(expected);
+      expect(isDeferredGraphQLResponse(res)).toEqual(false);
+      expect((res as GraphQLResponse).data).toEqual(expected);
     });
   });
 
@@ -212,8 +214,9 @@ describe('runQuery', () => {
       },
       request: new MockReq(),
     }).then(res => {
-      expect(res.data).to.deep.equal(expected);
-      expect(res['extensions']).to.equal('it still');
+      expect(isDeferredGraphQLResponse(res)).toEqual(false);
+      expect((res as GraphQLResponse).data).toEqual(expected);
+      expect(res['extensions']).toEqual('it still');
     });
   });
 
@@ -226,7 +229,8 @@ describe('runQuery', () => {
       variables: { base: 1 },
       request: new MockReq(),
     }).then(res => {
-      expect(res.data).to.deep.equal(expected);
+      expect(isDeferredGraphQLResponse(res)).toEqual(false);
+      expect((res as GraphQLResponse).data).toEqual(expected);
     });
   });
 
@@ -239,7 +243,8 @@ describe('runQuery', () => {
       queryString: query,
       request: new MockReq(),
     }).then(res => {
-      expect(res.errors![0].message).to.deep.equal(expected);
+      expect(isDeferredGraphQLResponse(res)).toEqual(false);
+      expect((res as GraphQLResponse).errors![0].message).toEqual(expected);
     });
   });
 
@@ -249,7 +254,8 @@ describe('runQuery', () => {
       queryString: `{ testAwaitedValue }`,
       request: new MockReq(),
     }).then(res => {
-      expect(res.data).to.deep.equal({
+      expect(isDeferredGraphQLResponse(res)).toEqual(false);
+      expect((res as GraphQLResponse).data).toEqual({
         testAwaitedValue: 'it works',
       });
     });
@@ -272,7 +278,8 @@ describe('runQuery', () => {
       operationName: 'Q1',
       request: new MockReq(),
     }).then(res => {
-      expect(res.data).to.deep.equal(expected);
+      expect(isDeferredGraphQLResponse(res)).toEqual(false);
+      expect((res as GraphQLResponse).data).toEqual(expected);
     });
   });
 
@@ -292,7 +299,8 @@ describe('runQuery', () => {
       request: new MockReq(),
     });
 
-    expect(result1.data).to.deep.equal({
+    expect(isDeferredGraphQLResponse(result1)).toEqual(false);
+    expect((result1 as GraphQLResponse).data).toEqual({
       testObject: {
         testString: 'a very test string',
       },
@@ -306,10 +314,87 @@ describe('runQuery', () => {
       request: new MockReq(),
     });
 
-    expect(result2.data).to.deep.equal({
+    expect(isDeferredGraphQLResponse(result1)).toEqual(false);
+    expect((result2 as GraphQLResponse).data).toEqual({
       testObject: {
         testString: 'a very testful field resolver string',
       },
+    });
+  });
+
+  describe('@defer support', () => {
+    it('fails if defer directive not declared in schema', async () => {
+      const query = `
+        query Q1 {
+          testObject {
+            testString @defer
+          }
+        }
+      `;
+
+      const result1 = await runQuery({
+        schema,
+        queryString: query,
+        operationName: 'Q1',
+        request: new MockReq(),
+        enableDefer: true,
+      });
+
+      expect(isDeferredGraphQLResponse(result1)).toEqual(false);
+      expect(result1.errors[0].message).toEqual('Unknown directive "defer".');
+    });
+
+    it('takes option to enable @defer', async done => {
+      const schema = new GraphQLSchema({
+        query: queryType,
+        directives: [GraphQLDeferDirective],
+      });
+
+      const query = `
+        query Q1 {
+          testObject {
+            testString @defer
+          }
+        }
+      `;
+
+      const result1 = await runQuery({
+        schema,
+        queryString: query,
+        operationName: 'Q1',
+        request: new MockReq(),
+      });
+
+      expect(isDeferredGraphQLResponse(result1)).toEqual(false);
+      expect(result1).toEqual({
+        data: { testObject: { testString: 'a very test string' } },
+      });
+
+      const result2 = await runQuery({
+        schema,
+        queryString: query,
+        operationName: 'Q1',
+        request: new MockReq(),
+        enableDefer: true,
+      });
+      expect(isDeferredGraphQLResponse(result2)).toEqual(true);
+      expect((result2 as DeferredGraphQLResponse).initialResponse).toEqual({
+        data: { testObject: { testString: null } },
+      });
+      const patches = [];
+      await forAwaitEach(
+        (result2 as DeferredGraphQLResponse).deferredPatches,
+        value => {
+          patches.push(value);
+        },
+      );
+      expect(patches).toEqual([
+        {
+          path: ['testObject', 'testString'],
+          data: 'a very test string',
+        },
+      ]);
+      done();
     });
   });
 
@@ -331,12 +416,12 @@ describe('runQuery', () => {
               testString: {
                 type: GraphQLString,
                 resolve(_root, _args, context) {
-                  expect(context._extensionStack).to.be.instanceof(
+                  expect(context._extensionStack).toBeInstanceOf(
                     GraphQLExtensionStack,
                   );
-                  expect(
-                    context._extensionStack.extensions[0],
-                  ).to.be.instanceof(CustomExtension);
+                  expect(context._extensionStack.extensions[0]).toBeInstanceOf(
+                    CustomExtension,
+                  );
                 },
               },
             },
@@ -358,8 +443,8 @@ describe('runQuery', () => {
         extensions,
         request: new MockReq(),
       }).then(res => {
-        expect(res.data).to.deep.equal(expected);
-        expect(res.extensions).to.deep.equal({
+        expect((res as GraphQLResponse).data).toEqual(expected);
+        expect((res as GraphQLResponse).extensions).toEqual({
           customExtension: { foo: 'bar' },
         });
       });
@@ -377,14 +462,14 @@ describe('runQuery', () => {
       return; // async_hooks not present, give up
     }
 
-    before(() => {
+    beforeAll(() => {
       asyncHook = asyncHooks.createHook({
         init: (asyncId: number) => ids.push(asyncId),
       });
       asyncHook.enable();
     });
 
-    after(() => {
+    afterAll(() => {
       asyncHook.disable();
     });
 
@@ -404,12 +489,8 @@ describe('runQuery', () => {
         request: new MockReq(),
       });
 
-      // this is the only async process so we expect the async ids to be a sequence
-      ids.forEach((id, i) => {
-        if (i > 0) {
-          expect(id).to.equal(ids[i - 1] + 1);
-        }
-      });
+      // Expect there to be several async ids provided
+      expect(ids.length).toBeGreaterThanOrEqual(2);
     });
   });
 });
