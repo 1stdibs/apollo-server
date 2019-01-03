@@ -12,6 +12,7 @@ import {
   DocumentNode,
 } from 'graphql';
 import { KeyValueCache } from 'apollo-server-caching';
+import { ExecutionPatchResult }  from '../dist/execute';
 
 export interface GraphQLServiceContext {
   schema: GraphQLSchema;
@@ -37,6 +38,12 @@ export interface GraphQLResponse {
   errors?: GraphQLError[];
   extensions?: Record<string, any>;
   http?: Pick<Response, 'headers'>;
+}
+
+export interface DeferredGraphQLResponse {
+  initialResponse: GraphQLResponse;
+  deferredPatches: AsyncIterable<ExecutionPatchResult>;
+  requestDidEnd: () => void;
 }
 
 export interface GraphQLRequestContext<TContext = Record<string, any>> {

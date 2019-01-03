@@ -5,9 +5,10 @@
     "outDir": "./dist"
   },
   "include": ["src/**/*"],
-  "exclude": ["**/__tests__", "**/__mocks__", "src/requestPipelineAPI.ts"],
+  "exclude": ["**/__tests__", "**/__mocks__", "src/requestPipelineAPI.ts", "src/runQuery.ts", "src/execute.ts"],
   "references": [
     { "path": "./tsconfig.requestPipelineAPI.json" },
+    { "path": "./tsconfig.execute.json" },
     { "path": "../apollo-cache-control" },
     { "path": "../apollo-datasource" },
     { "path": "../apollo-engine-reporting" },
