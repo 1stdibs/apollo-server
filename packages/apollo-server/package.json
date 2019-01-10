@@ -1,5 +1,5 @@
 {
-  "name": "apollo-server",
+  "name": "dibs-apollo-server",
   "version": "2.3.1",
   "description": "Production ready GraphQL Server",
   "author": "opensource@apollographql.com",

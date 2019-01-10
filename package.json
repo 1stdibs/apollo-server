@@ -1,5 +1,5 @@
 {
-  "name": "apollo-server-monorepo",
+  "name": "dibs-apollo-server-monorepo",
   "private": true,
   "license": "MIT",
   "repository": "github:apollographql/apollo-server",

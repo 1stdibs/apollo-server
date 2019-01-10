@@ -1,5 +1,5 @@
 {
-  "name": "apollo-server-plugin-base",
+  "name": "dibs-apollo-server-plugin-base",
   "version": "0.2.1",
   "description": "Apollo Server plugin base classes",
   "main": "dist/index.js",

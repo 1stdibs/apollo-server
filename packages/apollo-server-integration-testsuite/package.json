@@ -1,5 +1,5 @@
 {
-  "name": "apollo-server-integration-testsuite",
+  "name": "dibs-apollo-server-integration-testsuite",
   "private": true,
   "version": "2.3.1",
   "description": "Apollo Server Integrations testsuite",
