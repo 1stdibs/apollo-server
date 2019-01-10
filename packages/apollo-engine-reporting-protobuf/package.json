@@ -1,5 +1,5 @@
 {
-  "name": "apollo-engine-reporting-protobuf",
+  "name": "dibs-apollo-engine-reporting-protobuf",
   "version": "0.2.0",
   "description": "Protobuf format for Apollo Engine",
   "main": "dist/index.js",
