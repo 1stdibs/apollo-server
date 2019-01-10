@@ -1,6 +1,6 @@
 {
   "name": "dibs-apollo-server-cache-memcached",
-  "version": "0.2.2-alpha.0",
+  "version": "0.2.3-alpha.0",
   "author": "opensource@apollographql.com",
   "license": "MIT",
   "repository": {
