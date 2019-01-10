@@ -1,5 +1,5 @@
 {
-  "name": "apollo-tracing",
+  "name": "dibs-apollo-tracing",
   "version": "0.4.0",
   "description": "Collect and expose trace data for GraphQL requests",
   "main": "./dist/index.js",

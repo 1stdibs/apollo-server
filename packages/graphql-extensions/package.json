@@ -1,5 +1,5 @@
 {
-  "name": "graphql-extensions",
+  "name": "dibs-graphql-extensions",
   "version": "0.4.1",
   "description": "Add extensions to GraphQL servers",
   "main": "./dist/index.js",

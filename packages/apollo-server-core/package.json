@@ -1,5 +1,5 @@
 {
-  "name": "apollo-server-core",
+  "name": "dibs-apollo-server-core",
   "version": "2.3.1",
   "description": "Core engine for Apollo GraphQL server",
   "main": "dist/index.js",
