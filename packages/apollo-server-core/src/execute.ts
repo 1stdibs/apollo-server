@@ -64,7 +64,7 @@ import {
   defaultFieldResolver,
 } from 'graphql/execution/execute';
 import { getVariableValues } from 'graphql/execution/values';
-import GraphQLDeferDirective from '../dist/GraphQLDeferDirective';
+import GraphQLDeferDirective from './GraphQLDeferDirective';
 import Maybe from 'graphql/tsutils/Maybe';
 import { Kind } from 'graphql';
 

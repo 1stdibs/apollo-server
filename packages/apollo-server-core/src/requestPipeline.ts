@@ -60,7 +60,7 @@ import {
   isDeferredExecutionResult,
   ExecutionPatchResult,
   DeferredExecutionResult,
-} from '../dist/execute';
+} from './execute';
 
 function computeQueryHash(query: string) {
   return createHash('sha256')
