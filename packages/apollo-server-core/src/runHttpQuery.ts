@@ -177,6 +177,7 @@ export async function runHttpQuery(
     debug: options.debug,
 
     plugins: options.plugins || [],
+    enableDefer: options.enableDefer,
   };
 
   return processHTTPRequest(config, request);
