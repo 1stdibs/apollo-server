@@ -19,7 +19,8 @@
     "test:ci": "npm run coverage -- --ci --maxWorkers=2  --reporters=default --reporters=jest-junit",
     "coverage": "npm test -- --coverage",
     "coverage:upload": "codecov",
-    "deploy-dibs": "npm run clean && npm ci && lerna publish --exact --dist-tag dibs"
+    "deploy-dibs": "npm run clean && npm ci && lerna publish --exact --preid dibs --dist-tag dibs",
+    "deploy-dibs-alpha": "npm run clean && npm ci && lerna publish --exact --preid dibs-alpha --dist-tag dibs-alpha"
   },
   "lint-staged": {
     "*.ts": [
