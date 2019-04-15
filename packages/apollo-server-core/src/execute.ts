@@ -247,6 +247,7 @@ export interface ExecutionPatchResult {
   data?: FieldValue;
   errors?: ReadonlyArray<GraphQLError>;
   path: ReadonlyArray<string | number>;
+  extensions?: Record<string, any>;
 }
 
 /**

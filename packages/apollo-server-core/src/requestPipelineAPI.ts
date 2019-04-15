@@ -13,10 +13,13 @@ import {
 } from 'graphql';
 import { KeyValueCache } from 'apollo-server-caching';
 
+
 // TODO: Get FieldValue and ExecutionPatchResult from execute
 // Copying these types over from ./execute for now, because this compiles as a separate TypeScript
 // project it can't import these types from a relative file path or through /dist? There is
 // probably some config magic that needs to be done here to get this to work...
+
+/********************************* COPY START **********************************/
 
 // Valid types a GraphQL field can take
 type FieldValue =
@@ -31,7 +34,10 @@ export interface ExecutionPatchResult {
   data?: FieldValue;
   errors?: ReadonlyArray<GraphQLError>;
   path: ReadonlyArray<string | number>;
+  extensions?: Record<string, any>;
 }
+
+/********************************** COPY END ***********************************/
 
 export interface GraphQLServiceContext {
   schema: GraphQLSchema;
@@ -63,6 +69,7 @@ export interface DeferredGraphQLResponse {
   initialResponse: GraphQLResponse;
   deferredPatches: AsyncIterable<ExecutionPatchResult>;
   requestDidEnd: () => void;
+  extensionStack: any;
 }
 
 export interface GraphQLRequestContext<TContext = Record<string, any>> {
