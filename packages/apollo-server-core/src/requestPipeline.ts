@@ -286,6 +286,7 @@ export async function processGraphQLRequest<TContext>(
           initialResponse: response,
           deferredPatches: patches!,
           requestDidEnd,
+          extensionStack,
         };
       } else {
         executionDidEnd();
@@ -370,15 +371,14 @@ export async function processGraphQLRequest<TContext>(
         ? (requestContext.response as DeferredGraphQLResponse).initialResponse
         : undefined;
 
-      const r = extensionStack.willSendResponse({
+      const r = {
         graphqlResponse: {
           ...requestContextInitialResponse,
           errors: initialResponse.errors,
           data: initialResponse.data,
           extensions: initialResponse.extensions,
-        },
-        context: requestContext.context,
-      });
+        }
+      };
 
       requestContext.response = {
         ...(response as DeferredGraphQLResponse),

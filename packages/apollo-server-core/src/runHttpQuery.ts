@@ -258,6 +258,7 @@ export async function processHTTPRequest<TContext>(
   let body: string;
   let isDeferred = false;
   let response;
+  let requestContext;
 
   try {
     if (Array.isArray(requestPayload)) {
@@ -269,7 +270,7 @@ export async function processHTTPRequest<TContext>(
       const responses = await Promise.all(
         requests.map(async request => {
           try {
-            const requestContext = buildRequestContext(request);
+            requestContext = buildRequestContext(request);
             return await processGraphQLRequest(options, requestContext);
           } catch (error) {
             // A batch can contain another query that returns data,
@@ -291,7 +292,7 @@ export async function processHTTPRequest<TContext>(
       const request = parseGraphQLRequest(httpRequest.request, requestPayload);
 
       try {
-        const requestContext = buildRequestContext(request);
+        requestContext = buildRequestContext(request);
         response = await processGraphQLRequest(options, requestContext);
         isDeferred = isDeferredGraphQLResponse(response);
         const initialResponse = isDeferred
@@ -352,6 +353,7 @@ export async function processHTTPRequest<TContext>(
       graphqlResponse: undefined,
       graphqlResponses: graphqlResponseToAsyncIterable(
         response as DeferredGraphQLResponse,
+        requestContext
       ),
       responseInit,
     };
@@ -463,8 +465,9 @@ function cloneObject<T extends Object>(object: T): T {
 /**
  * Note: We can use async generators directly when it is supported in node 8/6
  */
-function graphqlResponseToAsyncIterable(
+function graphqlResponseToAsyncIterable<TContext>(
   result: DeferredGraphQLResponse,
+  requestContext: GraphQLRequestContext<TContext>,
 ): AsyncIterable<string> {
   const initialResponse = prettyJSONStringify(result.initialResponse);
   let initialResponseSent = false;
@@ -484,6 +487,25 @@ function graphqlResponseToAsyncIterable(
                   fromGraphQLError(error),
                 );
               }
+
+              // TODO: Is it wise to call this every time a patch is sent?
+              if (value) {
+                 const graphqlResponse = result.extensionStack.willSendResponse({
+                   graphqlResponse: {
+                     ...requestContext.response,
+                     errors: value.errors,
+                     data: value.data,
+                     extensions: value.extensions,
+                   },
+                   context: requestContext.context,
+                 }).graphqlResponse;
+
+                 value = {
+                   ...value,
+                   extensions: graphqlResponse.extensions,
+                 }
+              }
+
               // Call requestDidEnd when the last patch is resolved
               if (done) result.requestDidEnd();
               return { value: prettyJSONStringify(value), done };
