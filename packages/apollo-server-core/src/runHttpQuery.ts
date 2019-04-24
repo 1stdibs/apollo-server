@@ -1,6 +1,9 @@
 import { $$asyncIterator, createAsyncIterator } from 'iterall';
 import { Request, Headers } from 'apollo-server-env';
 import {
+  GraphQLError,
+} from 'graphql';
+import {
   default as GraphQLOptions,
   resolveGraphqlOptions,
 } from './graphqlOptions';
@@ -488,13 +491,12 @@ function graphqlResponseToAsyncIterable<TContext>(
                 );
               }
 
-              // TODO: Is it wise to call this every time a patch is sent?
               if (value) {
-                 const graphqlResponse = result.extensionStack.willSendResponse({
+                 const graphqlResponse = result.willSendResponse({
                    graphqlResponse: {
                      ...requestContext.response,
-                     errors: value.errors,
-                     data: value.data,
+                     errors: (value.errors as GraphQLError[]),
+                     data: (value.data as Record<string, any>),
                      extensions: value.extensions,
                    },
                    context: requestContext.context,

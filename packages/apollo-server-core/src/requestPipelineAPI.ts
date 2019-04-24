@@ -69,7 +69,7 @@ export interface DeferredGraphQLResponse {
   initialResponse: GraphQLResponse;
   deferredPatches: AsyncIterable<ExecutionPatchResult>;
   requestDidEnd: () => void;
-  extensionStack: any;
+  willSendResponse: (o: { graphqlResponse: GraphQLResponse; context: any; }) => { graphqlResponse: GraphQLResponse; context: any; };
 }
 
 export interface GraphQLRequestContext<TContext = Record<string, any>> {
