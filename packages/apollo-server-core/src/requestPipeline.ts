@@ -286,6 +286,7 @@ export async function processGraphQLRequest<TContext>(
           initialResponse: response,
           deferredPatches: patches!,
           requestDidEnd,
+          willSendResponse: extensionStack.willSendResponse.bind(extensionStack),
         };
       } else {
         executionDidEnd();
