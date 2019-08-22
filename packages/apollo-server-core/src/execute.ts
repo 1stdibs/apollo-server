@@ -234,7 +234,7 @@ function shouldDeferNode(
     node,
     exeContext.variableValues,
   );
-  return defer !== undefined ? !defer.if : false; // default value for "if" is true
+  return defer !== undefined ? (defer.if === undefined ? true : defer.if) : false; // default value for "if" is true
 }
 
 /**
