@@ -1,4 +1,6 @@
 {
+  "name": "root",
+  "lerna": "2.5.1",
   "packages": ["packages/*"],
   "version": "independent",
   "command": {

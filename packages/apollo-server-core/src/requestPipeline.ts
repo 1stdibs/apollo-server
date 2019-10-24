@@ -112,6 +112,11 @@ export async function processGraphQLRequest<TContext>(
   const extensionStack = initializeExtensionStack();
   (requestContext.context as any)._extensionStack = extensionStack;
 
+  // @ts-ignore
+  let isDeferred = false;
+  // @ts-ignore
+  let patches = [];
+
   const dispatcher = initializeRequestListenerDispatcher();
 
   initializeDataSources();
@@ -350,14 +355,27 @@ export async function processGraphQLRequest<TContext>(
           'document' | 'operation' | 'operationName' | 'queryHash'
         >);
 
-        if (result.errors) {
+        // @ts-ignore
+        patches = result.patches;
+        // @ts-ignore
+        isDeferred = patches && patches.length > 0;
+
+        if (!isDeferred && result.errors) {
           await didEncounterErrors(result.errors);
         }
 
-        response = {
-          ...result,
-          errors: result.errors ? formatErrors(result.errors) : undefined,
-        };
+        if (isDeferred) {
+        // @ts-ignore
+          const { patches, ...rest } = result;
+          response = {
+            ...rest,
+          };
+        } else {
+          response = {
+            ...result,
+            errors: result.errors ? formatErrors(result.errors) : undefined,
+          };
+        }
 
         executionDidEnd();
       } catch (executionError) {
@@ -395,9 +413,23 @@ export async function processGraphQLRequest<TContext>(
       }
     }
 
-    return sendResponse(response);
+    let responseToSend = response;
+    if (isDeferred) {
+      responseToSend = {
+        // @ts-ignore
+        initialResponse: response,
+        // @ts-ignore
+        deferredPatches: patches,
+        // @ts-ignore
+        requestDidEnd,
+      };
+    }
+
+    return sendResponse(responseToSend);
   } finally {
-    requestDidEnd();
+    if (!isDeferred) {
+      requestDidEnd();
+    }
   }
 
   function parse(
@@ -474,22 +506,48 @@ export async function processGraphQLRequest<TContext>(
   ): Promise<GraphQLResponse> {
     // We override errors, data, and extensions with the passed in response,
     // but keep other properties (like http)
-    requestContext.response = extensionStack.willSendResponse({
-      graphqlResponse: {
-        ...requestContext.response,
-        errors: response.errors,
-        data: response.data,
-        extensions: response.extensions,
-      },
-      context: requestContext.context,
-    }).graphqlResponse;
-    await dispatcher.invokeHookAsync(
-      'willSendResponse',
-      requestContext as WithRequired<
-        typeof requestContext,
-        'metrics' | 'response'
-      >,
-    );
+        // @ts-ignore
+    if (response.initialResponse) {
+        // @ts-ignore
+      const initialResponse = response.initialResponse;
+      const requestContextInitialResponse = requestContext.response
+        // @ts-ignore
+        ? response.initialResponse
+        : undefined;
+
+      const r = extensionStack.willSendResponse({
+        graphqlResponse: {
+          ...requestContextInitialResponse,
+          errors: initialResponse.errors,
+          data: initialResponse.data,
+          extensions: initialResponse.extensions,
+        },
+        context: requestContext.context,
+      });
+
+      requestContext.response = {
+        ...response,
+        // @ts-ignore
+        initialResponse: r.graphqlResponse,
+      }
+    } else {
+      requestContext.response = extensionStack.willSendResponse({
+        graphqlResponse: {
+          ...requestContext.response,
+          errors: response.errors,
+          data: response.data,
+          extensions: response.extensions,
+        },
+        context: requestContext.context,
+      }).graphqlResponse;
+      await dispatcher.invokeHookAsync(
+        'willSendResponse',
+        requestContext as WithRequired<
+          typeof requestContext,
+          'metrics' | 'response'
+        >,
+      );
+    }
     return requestContext.response!;
   }
 
