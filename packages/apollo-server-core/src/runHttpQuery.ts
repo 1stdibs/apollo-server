@@ -1,3 +1,4 @@
+import { $$asyncIterator, createAsyncIterator } from 'iterall';
 import { Request, Headers, ValueOrPromise } from 'apollo-server-env';
 import {
   default as GraphQLOptions,
@@ -276,6 +277,8 @@ export async function processHTTPRequest<TContext>(
   };
 
   let body: string;
+  let isDeferred = false;
+  let response;
 
   try {
     if (Array.isArray(requestPayload)) {
@@ -307,27 +310,32 @@ export async function processHTTPRequest<TContext>(
       try {
         const requestContext = buildRequestContext(request);
 
-        const response = await processGraphQLRequest(options, requestContext);
+        response = await processGraphQLRequest(options, requestContext);
+        // @ts-ignore
+        isDeferred = !!response.initialResponse;
+        // @ts-ignore
+        const initialResponse = isDeferred ? response.initialResponse : undefined;
+        const graphqlResponse = initialResponse || response;
 
         // This code is run on parse/validation errors and any other error that
         // doesn't reach GraphQL execution
-        if (response.errors && typeof response.data === 'undefined') {
+        if (graphqlResponse.errors && typeof graphqlResponse.data === 'undefined') {
           // don't include options, since the errors have already been formatted
           return throwHttpGraphQLError(
-            (response.http && response.http.status) || 400,
-            response.errors as any,
+            (graphqlResponse.http && graphqlResponse.http.status) || 400,
+            graphqlResponse.errors as any,
             undefined,
-            response.extensions,
+            graphqlResponse.extensions,
           );
         }
 
-        if (response.http) {
-          for (const [name, value] of response.http.headers) {
+        if (graphqlResponse.http) {
+          for (const [name, value] of graphqlResponse.http.headers) {
             responseInit.headers![name] = value;
           }
         }
 
-        body = prettyJSONStringify(serializeGraphQLResponse(response));
+        body = prettyJSONStringify(serializeGraphQLResponse(graphqlResponse));
       } catch (error) {
         if (error instanceof InvalidGraphQLRequestError) {
           throw new HttpQueryError(400, error.message);
@@ -348,15 +356,25 @@ export async function processHTTPRequest<TContext>(
     return throwHttpGraphQLError(500, [error], options);
   }
 
-  responseInit.headers!['Content-Length'] = Buffer.byteLength(
-    body,
-    'utf8',
-  ).toString();
+  if (!isDeferred) {
+    responseInit.headers!['Content-Length'] = Buffer.byteLength(
+      body,
+      'utf8',
+    ).toString();
 
-  return {
-    graphqlResponse: body,
-    responseInit,
-  };
+    return {
+      graphqlResponse: body,
+      responseInit,
+    };
+  } else {
+    return {
+      // @ts-ignore
+      graphqlResponse: undefined,
+      // @ts-ignore
+      graphqlResponses: graphqlResponseToAsyncIterable(response),
+      responseInit,
+    };
+  }
 }
 
 function parseGraphQLRequest(
@@ -459,4 +477,42 @@ function prettyJSONStringify(value: any) {
 
 function cloneObject<T extends Object>(object: T): T {
   return Object.assign(Object.create(Object.getPrototypeOf(object)), object);
+}
+
+/**
+ * Note: We can use async generators directly when it is supported in node 8/6
+ */
+function graphqlResponseToAsyncIterable(
+  result: GraphQLResponse,
+): AsyncIterable<string> {
+  // @ts-ignore
+  const initialResponse = prettyJSONStringify(result.initialResponse);
+  let initialResponseSent = false;
+  // @ts-ignore
+  const patchIterator = createAsyncIterator(result.deferredPatches);
+
+  return {
+    [$$asyncIterator]() {
+      return {
+        next() {
+          if (!initialResponseSent) {
+            initialResponseSent = true;
+            return Promise.resolve({ value: initialResponse, done: false });
+          } else {
+            // @ts-ignore
+            return patchIterator.next().then(({ value, done }) => {
+              if (value && value.errors) {
+                // @ts-ignore
+                value.errors = value.errors.map(error => error);
+              }
+              // Call requestDidEnd when the last patch is resolved
+              // @ts-ignore
+              if (done) result.requestDidEnd();
+              return { value: prettyJSONStringify(value), done };
+            });
+          }
+        },
+      };
+    },
+  } as any; // Typescript does not handle $$asyncIterator correctly
 }

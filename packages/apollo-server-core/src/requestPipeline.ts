@@ -358,8 +358,9 @@ export async function processGraphQLRequest<TContext>(
         // @ts-ignore
         patches = result.patches;
         // @ts-ignore
-        isDeferred = patches && patches.length > 0;
+        isDeferred = !!patches;
 
+        // @ts-ignore
         if (!isDeferred && result.errors) {
           await didEncounterErrors(result.errors);
         }
